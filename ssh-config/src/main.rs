@@ -1,4 +1,4 @@
-use std::{fs, fmt};
+use std::{collections::BTreeMap, fmt, fs};
 
 use clap::Parser;
 
@@ -27,34 +27,40 @@ enum Operation {
 }
 
 /// `SingleConfig` represents a single ssh config.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct SingleConfig {
     name: String,
     user: String,
     host: String,
-    identity_file: Option<String>,
-    server_alive_interval: Option<u32>,
-    server_alive_count_max: Option<u32>,
+    raw_fields: BTreeMap<String, String>,
+}
+
+impl SingleConfig {
+    pub fn new(name: &str, host: &str, user: &str, raw_fields: BTreeMap<&str, &str>) -> Self {
+        Self {
+            name: name.to_string(),
+            host: host.to_string(),
+            user: user.to_string(),
+            raw_fields: raw_fields
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect::<BTreeMap<String, String>>(),
+        }
+    }
 }
 
 impl fmt::Display for SingleConfig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut config = format!(
-r#"Host {}
+            r#"Host {}
     User {}
     Hostname {}
-"#, self.name, self.user, self.host);
+"#,
+            self.name, self.user, self.host
+        );
 
-        if let Some(identity_file) = &self.identity_file {
-            config.push_str(&format!("    IdentityFile {}\n", identity_file));
-        }
-
-        if let Some(server_alive_interval) = &self.server_alive_interval {
-            config.push_str(&format!("    ServerAliveInterval {}\n", server_alive_interval));
-        }
-
-        if let Some(server_alive_count_max) = &self.server_alive_count_max {
-            config.push_str(&format!("    ServerAliveCountMax {}\n", server_alive_count_max));
+        for (key, value) in &self.raw_fields {
+            config.push_str(&format!("    {} {}\n", key, value));
         }
 
         write!(f, "{}", config)
@@ -77,42 +83,37 @@ fn parse_config() -> Result<Config, String> {
     while let Some(line) = lines.next() {
         let line = line.trim();
         if line.starts_with("Host") {
-            line.split_whitespace().nth(1)
-            .and_then(|name| {
-                let mut config = SingleConfig::default();
-                config.name = name.to_string();
+            line.split_whitespace().nth(1).and_then(|name| {
+                let mut user = "";
+                let mut host = "";
+                let mut raw_fields = BTreeMap::new();
+
                 loop {
                     let line = lines.next();
                     if line.is_none() {
-                        configs.push(config);
+                        configs.push(SingleConfig::new(name, host, user, raw_fields));
                         break;
                     }
                     let line = line.unwrap().trim();
                     if line.is_empty() {
-                        configs.push(config);
+                        configs.push(SingleConfig::new(name, host, user, raw_fields));
                         break;
                     }
                     if line.starts_with("User") {
-                        line.split_whitespace().nth(1)
-                            .map(|user| config.user = user.to_string())
+                        line.split_whitespace()
+                            .nth(1)
+                            .map(|u| user = u)
                             .ok_or_else(|| format!("Failed to parse user"))
                             .ok()?;
                     } else if line.starts_with("Hostname") {
-                        line.split_whitespace().nth(1)
-                            .map(|host| config.host = host.to_string())
+                        line.split_whitespace()
+                            .nth(1)
+                            .map(|h| host = h)
                             .ok_or_else(|| format!("Failed to parse host"))
                             .ok()?;
-                    } else if line.starts_with("IdentityFile") {
-                        line.split_whitespace().nth(1)
-                            .map(|identity_file| config.identity_file = Some(identity_file.to_string()));
-                    } else if line.starts_with("ServerAliveInterval") {
-                        line.split_whitespace().nth(1)
-                            .and_then(|server_alive_interval| server_alive_interval.parse::<u32>().ok())
-                            .map(|server_alive_interval| config.server_alive_interval = Some(server_alive_interval));
-                    } else if line.starts_with("ServerAliveCountMax") {
-                        line.split_whitespace().nth(1)
-                            .and_then(|server_alive_count_max| server_alive_count_max.parse::<u32>().ok())
-                            .map(|server_alive_count_max| config.server_alive_count_max = Some(server_alive_count_max));
+                    } else {
+                        let splits = line.splitn(2, ' ').collect::<Vec<&str>>();
+                        raw_fields.insert(splits[0], splits[1]);
                     }
                 }
 
