@@ -1,0 +1,9 @@
+[package]
+name = "ssh-config"
+description = "A tool to manage ssh config files"
+version = "0.1.0"
+edition = "2021"
+authors = ["mmynk <mohit.ritanil@gmail.com>"]
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
