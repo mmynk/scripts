@@ -1,11 +1,11 @@
 #[cfg(test)]
 mod test;
 
-use std::{collections::BTreeMap, fmt, fs};
+use std::{collections::BTreeMap, env, fmt, fs};
 
 use clap::Parser;
 
-const CONFIG_PATH: &str = "/Users/mohit/.ssh/config";
+const CONFIG_PATH: &str = "~/.ssh/config";
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -159,7 +159,7 @@ fn update_ip(config_path: &str, config_name: &str, ip: &str) {
     let mut configs = match parse_config(config_path) {
         Ok(configs) => configs,
         Err(e) => {
-            println!("Error: {}", e);
+            println!("Failed to parse config! error={}", e);
             return;
         }
     };
@@ -171,7 +171,7 @@ fn update_ip(config_path: &str, config_name: &str, ip: &str) {
     }
 
     if let Err(e) = write_config(config_path, configs) {
-        println!("Failed to update config! Error: {}", e);
+        println!("Failed to update config! error={}", e);
         return;
     }
 
@@ -179,10 +179,23 @@ fn update_ip(config_path: &str, config_name: &str, ip: &str) {
 }
 
 fn main() {
-    // update_ip("playground", "3.141.20.157");
     let args = Args::parse();
 
+    let mut config_path = args.config_path;
+    config_path = if config_path == CONFIG_PATH {
+        let home = match env::var("HOME") {
+            Ok(home) => home,
+            Err(e) => {
+                println!("Failed to get home directory! error={}", e);
+                return;
+            }
+        };
+        config_path.replace("~", &home)
+    } else {
+        config_path
+    };
+
     match args.operation {
-        Operation::UpdateIp { config_name, ip } => update_ip(&args.config_path, &config_name, &ip),
+        Operation::UpdateIp { config_name, ip } => update_ip(&config_path, &config_name, &ip),
     }
 }
