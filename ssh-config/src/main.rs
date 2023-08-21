@@ -10,6 +10,10 @@ struct Args {
     /// Operation to perform.
     #[command(subcommand)]
     operation: Operation,
+
+    /// Path to the config file.
+    #[arg(short, long, default_value = CONFIG_PATH)]
+    config_path: String,
 }
 
 #[derive(Parser, Debug)]
@@ -70,10 +74,10 @@ impl fmt::Display for SingleConfig {
 type Config = Vec<SingleConfig>;
 
 /// Parse SSH configs into a Vec of `Config`.
-fn parse_config() -> Result<Config, String> {
+fn parse_config(config_path: &str) -> Result<Config, String> {
     let mut configs = Vec::new();
 
-    let contents = match fs::read_to_string(CONFIG_PATH) {
+    let contents = match fs::read_to_string(config_path) {
         Ok(contents) => contents,
         Err(e) => return Err(format!("Failed to read config file: error={}", e)),
     };
@@ -126,30 +130,30 @@ fn parse_config() -> Result<Config, String> {
 }
 
 /// Write configs to file.
-fn write_config(config: Config) -> Result<(), String> {
-    let contents = config.into_iter()
+fn write_config(config_path: &str, config: Config) -> Result<(), String> {
+    let contents = config
+        .into_iter()
         .map(|config| config.to_string())
         .collect::<Vec<String>>()
         .join("\n");
 
-    match fs::write(CONFIG_PATH, contents) {
+    match fs::write(config_path, contents) {
         Ok(_) => Ok(()),
         Err(e) => Err(format!("Failed to write config file: error={}", e)),
     }
 }
 
 /// Print the entire SSH config.
-fn print_config() {
-    match fs::read_to_string(CONFIG_PATH) {
+fn print_config(config_path: &str) {
+    match fs::read_to_string(config_path) {
         Ok(contents) => println!("{contents}"),
         Err(e) => println!("Failed to read config file: error={}", e),
     }
 }
 
-
 /// Update the IP address of a config.
-fn update_ip(config_name: &str, ip: &str) {
-    let mut configs = match parse_config() {
+fn update_ip(config_path: &str, config_name: &str, ip: &str) {
+    let mut configs = match parse_config(config_path) {
         Ok(configs) => configs,
         Err(e) => {
             println!("Error: {}", e);
@@ -163,12 +167,12 @@ fn update_ip(config_name: &str, ip: &str) {
         }
     }
 
-    if let Err(e) = write_config(configs) {
+    if let Err(e) = write_config(config_path, configs) {
         println!("Failed to update config! Error: {}", e);
         return;
-    } else {
-        print_config();
     }
+
+    print_config(config_path);
 }
 
 fn main() {
@@ -176,6 +180,6 @@ fn main() {
     let args = Args::parse();
 
     match args.operation {
-        Operation::UpdateIp { config_name, ip } => update_ip(&config_name, &ip),
+        Operation::UpdateIp { config_name, ip } => update_ip(&args.config_path, &config_name, &ip),
     }
 }
