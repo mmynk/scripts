@@ -7,3 +7,4 @@ authors = ["mmynk <mohit.ritanil@gmail.com>"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+indexmap = "2"

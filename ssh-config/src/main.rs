@@ -1,11 +1,13 @@
+mod consts;
 #[cfg(test)]
 mod test;
 
-use std::{collections::BTreeMap, env, fmt, fs};
+use std::{env, fmt, fs};
 
 use clap::Parser;
+use indexmap::IndexMap;
 
-const CONFIG_PATH: &str = "~/.ssh/config";
+use crate::consts::*;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -37,21 +39,17 @@ enum Operation {
 #[derive(Debug)]
 struct SingleConfig {
     name: String,
-    user: String,
-    host: String,
-    raw_fields: BTreeMap<String, String>,
+    fields: IndexMap<String, String>, // preserve order
 }
 
 impl SingleConfig {
-    pub fn new(name: &str, host: &str, user: &str, raw_fields: BTreeMap<&str, &str>) -> Self {
+    pub fn new(name: &str, fields: &Vec<(&str, &str)>) -> Self {
         Self {
             name: name.to_string(),
-            host: host.to_string(),
-            user: user.to_string(),
-            raw_fields: raw_fields
+            fields: fields
                 .into_iter()
                 .map(|(key, value)| (key.to_string(), value.to_string()))
-                .collect::<BTreeMap<String, String>>(),
+                .collect::<_>(),
         }
     }
 }
@@ -60,13 +58,11 @@ impl fmt::Display for SingleConfig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut config = format!(
             r#"Host {}
-    User {}
-    Hostname {}
 "#,
-            self.name, self.user, self.host
+            self.name
         );
 
-        for (key, value) in &self.raw_fields {
+        for (key, value) in &self.fields {
             config.push_str(&format!("    {} {}\n", key, value));
         }
 
@@ -86,47 +82,42 @@ fn parse_config(config_path: &str) -> Result<Config, String> {
     };
 
     let mut lines = contents.lines();
+    let mut name = "default";
+    let mut fields = Vec::new();
 
     while let Some(line) = lines.next() {
         let line = line.trim();
-        if line.starts_with("Host") {
-            line.split_whitespace().nth(1).and_then(|name| {
-                let mut user = "";
-                let mut host = "";
-                let mut raw_fields = BTreeMap::new();
+        if line.starts_with("Host ") {
+            if !&fields.is_empty() {
+                configs.push(SingleConfig::new(name, &fields));
+            }
+            name = line.split(' ').collect::<Vec<&str>>()[1];
+            fields = Vec::new();
+        } else if line.is_empty() {
+            if !&fields.is_empty() {
+                configs.push(SingleConfig::new(name, &fields));
+            }
+            fields = Vec::new();
+        } else {
+            let splits = if line.contains(' ') {
+                line.splitn(2, ' ').collect::<Vec<&str>>()
+            } else if line.contains('=') {
+                line.splitn(2, '=').collect::<Vec<&str>>()
+            } else {
+                continue;
+            };
+            let key = splits[0];
+            let value = splits[1];
 
-                loop {
-                    let line = lines.next();
-                    if line.is_none() {
-                        configs.push(SingleConfig::new(name, host, user, raw_fields));
-                        break;
-                    }
-                    let line = line.unwrap().trim();
-                    if line.is_empty() {
-                        configs.push(SingleConfig::new(name, host, user, raw_fields));
-                        break;
-                    }
-                    if line.starts_with("User") {
-                        line.split_whitespace()
-                            .nth(1)
-                            .map(|u| user = u)
-                            .ok_or_else(|| format!("Failed to parse user"))
-                            .ok()?;
-                    } else if line.starts_with("Hostname") {
-                        line.split_whitespace()
-                            .nth(1)
-                            .map(|h| host = h)
-                            .ok_or_else(|| format!("Failed to parse host"))
-                            .ok()?;
-                    } else {
-                        let splits = line.splitn(2, ' ').collect::<Vec<&str>>();
-                        raw_fields.insert(splits[0], splits[1]);
-                    }
-                }
-
-                Some(())
-            });
+            if line.starts_with("#") {
+                continue;
+            } else {
+                fields.push((key, value));
+            }
         }
+    }
+    if !&fields.is_empty() {
+        configs.push(SingleConfig::new(name, &fields));
     }
 
     Ok(configs)
@@ -166,7 +157,7 @@ fn update_ip(config_path: &str, config_name: &str, ip: &str) {
 
     for config in &mut configs {
         if config.name == config_name {
-            config.host = ip.to_string();
+            config.fields[HOST] = ip.to_string();
         }
     }
 
